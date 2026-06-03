@@ -1,4 +1,4 @@
-use crate::{commands, config, error::Error, ModeArgs, DEST, KUBECONFIG};
+use crate::{app_config, commands, config, error::Error, ModeArgs, DEST, KUBECONFIG};
 
 pub fn default_context(args: ModeArgs) -> Result<(), Error> {
     let config = config::get(None);
@@ -24,7 +24,8 @@ pub fn default_context(args: ModeArgs) -> Result<(), Error> {
                 .map(|context| context.name.to_string())
                 .collect();
 
-            commands::selectable_list(options).ok_or(Error::NoItemSelected { prompt: "context" })?
+            commands::selectable_list(options, app_config::get())
+                .ok_or(Error::NoItemSelected { prompt: "context" })?
         }
         Some(x) => x.trim().to_string(),
     };
@@ -72,7 +73,8 @@ pub fn context(args: ModeArgs) -> Result<(), Error> {
                 .map(|context| context.name.to_string())
                 .collect();
 
-            commands::selectable_list(options).ok_or(Error::NoItemSelected { prompt: "context" })?
+            commands::selectable_list(options, app_config::get())
+                .ok_or(Error::NoItemSelected { prompt: "context" })?
         }
         Some(x) => x.trim().to_string(),
     };
@@ -122,9 +124,11 @@ pub fn namespace(args: ModeArgs) -> Result<(), Error> {
     let ns = match args.value {
         None => {
             let namespaces: Vec<String> = commands::get_namespaces();
-            commands::selectable_list(namespaces).ok_or(Error::NoItemSelected {
-                prompt: "namespace",
-            })?
+            commands::selectable_list(namespaces, app_config::get()).ok_or(
+                Error::NoItemSelected {
+                    prompt: "namespace",
+                },
+            )?
         }
         Some(x) => x.trim().to_string(),
     };
@@ -172,9 +176,11 @@ pub fn default_namespace(args: ModeArgs) -> Result<(), Error> {
     let ns = match args.value {
         None => {
             let namespaces: Vec<String> = commands::get_namespaces();
-            commands::selectable_list(namespaces).ok_or(Error::NoItemSelected {
-                prompt: "namespace",
-            })?
+            commands::selectable_list(namespaces, app_config::get()).ok_or(
+                Error::NoItemSelected {
+                    prompt: "namespace",
+                },
+            )?
         }
         Some(x) => x.trim().to_string(),
     };

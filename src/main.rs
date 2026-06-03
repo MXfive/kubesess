@@ -1,3 +1,4 @@
+mod app_config;
 mod commands;
 mod config;
 mod error;
