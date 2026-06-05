@@ -1,4 +1,27 @@
-use crate::{app_config, commands, config, error::Error, ModeArgs, DEST, KUBECONFIG};
+use crate::{
+    app_config, commands, config, error::Error, previous, previous::Slot, ModeArgs, DEST,
+    KUBECONFIG,
+};
+
+fn current_namespace_for(config: &kube::config::Kubeconfig, ctx: &str) -> Option<String> {
+    config
+        .contexts
+        .iter()
+        .find(|c| c.name == ctx)
+        .and_then(|c| c.context.as_ref())
+        .and_then(|c| c.namespace.clone())
+}
+
+fn resolve(args_value: Option<String>, slot: Slot) -> Result<Option<String>, Error> {
+    match args_value.as_deref().map(str::trim) {
+        Some("-") => match previous::read(&DEST, slot) {
+            Some(v) => Ok(Some(v)),
+            None => Err(Error::NoItemSelected { prompt: slot.label() }),
+        },
+        Some(v) => Ok(Some(v.to_string())),
+        None => Ok(None),
+    }
+}
 
 pub fn default_context(args: ModeArgs) -> Result<(), Error> {
     let config = config::get(None);
@@ -15,7 +38,11 @@ pub fn default_context(args: ModeArgs) -> Result<(), Error> {
         return Ok(());
     }
 
-    let ctx = match args.value {
+    let current = config.config.current_context.clone();
+
+    let resolved = resolve(args.value, Slot::GlobalContext)?;
+    let ctx = match resolved {
+        Some(v) => v,
         None => {
             let options: Vec<String> = config
                 .config
@@ -27,7 +54,6 @@ pub fn default_context(args: ModeArgs) -> Result<(), Error> {
             commands::selectable_list(options, app_config::get())
                 .ok_or(Error::NoItemSelected { prompt: "context" })?
         }
-        Some(x) => x.trim().to_string(),
     };
 
     if let Some(target) = config
@@ -41,6 +67,11 @@ pub fn default_context(args: ModeArgs) -> Result<(), Error> {
         })
         .map(|(_, path)| path.clone())
     {
+        if let Some(prev) = current.as_deref() {
+            if prev != ctx {
+                previous::write(&DEST, Slot::GlobalContext, prev);
+            }
+        }
         commands::set_default_context(&ctx, &target);
         // TODO: We should move the target to the front of the line instead of inserting a
         // duplicate
@@ -63,8 +94,12 @@ pub fn context(args: ModeArgs) -> Result<(), Error> {
         return Ok(());
     }
 
+    let current = current_session.current_context.clone();
+
     let config = config::get(None);
-    let ctx = match args.value {
+    let resolved = resolve(args.value, Slot::SessionContext)?;
+    let ctx = match resolved {
+        Some(v) => v,
         None => {
             let options: Vec<String> = config
                 .config
@@ -76,8 +111,13 @@ pub fn context(args: ModeArgs) -> Result<(), Error> {
             commands::selectable_list(options, app_config::get())
                 .ok_or(Error::NoItemSelected { prompt: "context" })?
         }
-        Some(x) => x.trim().to_string(),
     };
+
+    if let Some(prev) = current.as_deref() {
+        if prev != ctx {
+            previous::write(&DEST, Slot::SessionContext, prev);
+        }
+    }
 
     let set_context_result =
         commands::set_context(&ctx, &DEST, &current_session).map_err(Error::SetContext);
@@ -121,7 +161,11 @@ pub fn namespace(args: ModeArgs) -> Result<(), Error> {
         return Ok(());
     }
 
-    let ns = match args.value {
+    let current_ns = current_namespace_for(&config, current_ctx);
+
+    let resolved = resolve(args.value, Slot::SessionNamespace)?;
+    let ns = match resolved {
+        Some(v) => v,
         None => {
             let namespaces: Vec<String> = commands::get_namespaces();
             commands::selectable_list(namespaces, app_config::get()).ok_or(
@@ -130,8 +174,13 @@ pub fn namespace(args: ModeArgs) -> Result<(), Error> {
                 },
             )?
         }
-        Some(x) => x.trim().to_string(),
     };
+
+    if let Some(prev) = current_ns.as_deref() {
+        if prev != ns {
+            previous::write(&DEST, Slot::SessionNamespace, prev);
+        }
+    }
 
     let result = commands::set_namespace(current_ctx, &ns, &DEST, &config);
 
@@ -173,7 +222,11 @@ pub fn default_namespace(args: ModeArgs) -> Result<(), Error> {
         return Ok(());
     }
 
-    let ns = match args.value {
+    let current_ns = current_namespace_for(&config.config, ctx);
+
+    let resolved = resolve(args.value, Slot::GlobalNamespace)?;
+    let ns = match resolved {
+        Some(v) => v,
         None => {
             let namespaces: Vec<String> = commands::get_namespaces();
             commands::selectable_list(namespaces, app_config::get()).ok_or(
@@ -182,7 +235,6 @@ pub fn default_namespace(args: ModeArgs) -> Result<(), Error> {
                 },
             )?
         }
-        Some(x) => x.trim().to_string(),
     };
 
     if let Some(target) = config
@@ -196,6 +248,11 @@ pub fn default_namespace(args: ModeArgs) -> Result<(), Error> {
         })
         .map(|(_, path)| path.clone())
     {
+        if let Some(prev) = current_ns.as_deref() {
+            if prev != ns {
+                previous::write(&DEST, Slot::GlobalNamespace, prev);
+            }
+        }
         commands::set_default_namespace(&ns, ctx, &target);
     }
 
@@ -240,3 +297,4 @@ pub fn completion_namespace(args: ModeArgs) {
 
     println!("{}", options.join(" "));
 }
+

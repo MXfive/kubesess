@@ -4,6 +4,7 @@ mod config;
 mod error;
 mod init;
 mod modes;
+mod previous;
 
 use clap::{Parser, Subcommand};
 use kube::config::Kubeconfig;

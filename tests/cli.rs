@@ -122,6 +122,106 @@ fn set_default_namespace() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 // =============================================================================
+// Previous-switch (`-`) tests
+// =============================================================================
+
+#[test]
+#[serial]
+fn previous_session_context_toggles() -> Result<(), Box<dyn std::error::Error>> {
+    reset_environment();
+    let env = setup_multi_kubeconfig_environment();
+
+    let kubeconfig_value = format!(
+        "{}:{}",
+        env.config_path.display(),
+        env.work_path.display()
+    );
+    std::env::set_var("KUBECONFIG", &kubeconfig_value);
+
+    // Switch to docker-desktop (current was docker-desktop too — no previous yet)
+    let mut cmd1 = Command::cargo_bin("kubesess")?;
+    let out1 = cmd1.arg("context").arg("-v").arg("docker-desktop").output()?;
+    let kc1 = String::from_utf8(out1.stdout)?.trim().to_owned();
+    std::env::set_var("KUBECONFIG", &kc1);
+
+    // Switch to work-prod — previous should now be docker-desktop
+    let mut cmd2 = Command::cargo_bin("kubesess")?;
+    let out2 = cmd2.arg("context").arg("-v").arg("work-prod").output()?;
+    let kc2 = String::from_utf8(out2.stdout)?.trim().to_owned();
+    std::env::set_var("KUBECONFIG", &kc2);
+
+    let mut cmdc = Command::cargo_bin("kubesess")?;
+    let cur = String::from_utf8(cmdc.arg("context").arg("-c").output()?.stdout)?
+        .trim()
+        .to_owned();
+    assert_eq!(cur, "work-prod");
+
+    // Switch back via `-`
+    let mut cmd3 = Command::cargo_bin("kubesess")?;
+    let out3 = cmd3.arg("context").arg("-v").arg("-").output()?;
+    assert!(out3.status.success(), "kc - should succeed; stderr: {}", String::from_utf8_lossy(&out3.stderr));
+    let kc3 = String::from_utf8(out3.stdout)?.trim().to_owned();
+    std::env::set_var("KUBECONFIG", &kc3);
+
+    let mut cmd3c = Command::cargo_bin("kubesess")?;
+    let cur3 = String::from_utf8(cmd3c.arg("context").arg("-c").output()?.stdout)?
+        .trim()
+        .to_owned();
+    assert_eq!(cur3, "docker-desktop", "should toggle back to docker-desktop");
+
+    reset_environment();
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn previous_session_context_empty_slot_errors() -> Result<(), Box<dyn std::error::Error>> {
+    reset_environment();
+    let env = setup_multi_kubeconfig_environment();
+
+    let kubeconfig_value = format!("{}", env.config_path.display());
+    std::env::set_var("KUBECONFIG", &kubeconfig_value);
+
+    // Slot is empty (fresh temp HOME) — `-` should fail
+    let mut cmd = Command::cargo_bin("kubesess")?;
+    let out = cmd.arg("context").arg("-v").arg("-").output()?;
+    assert!(!out.status.success(), "kc - with empty slot should fail");
+
+    reset_environment();
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn previous_session_and_global_slots_isolated() -> Result<(), Box<dyn std::error::Error>> {
+    reset_environment();
+    let env = setup_multi_kubeconfig_environment();
+
+    let kubeconfig_value = format!(
+        "{}:{}",
+        env.config_path.display(),
+        env.work_path.display()
+    );
+    std::env::set_var("KUBECONFIG", &kubeconfig_value);
+
+    // Populate session-context previous: docker-desktop -> work-prod
+    let mut c1 = Command::cargo_bin("kubesess")?;
+    let o1 = c1.arg("context").arg("-v").arg("work-prod").output()?;
+    std::env::set_var("KUBECONFIG", String::from_utf8(o1.stdout)?.trim());
+
+    // global-context previous slot must still be empty: `kcd -` errors
+    let mut c2 = Command::cargo_bin("kubesess")?;
+    let o2 = c2.arg("default-context").arg("-v").arg("-").output()?;
+    assert!(
+        !o2.status.success(),
+        "default-context - should fail when only session slot was populated"
+    );
+
+    reset_environment();
+    Ok(())
+}
+
+// =============================================================================
 // Multi-Kubeconfig Test Infrastructure
 // =============================================================================
 
